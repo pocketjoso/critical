@@ -1,19 +1,21 @@
 /*
- Unit tests for Critical.
-
- Note: At present, our tests will pass on Unix based systems but fail on
- Windows. This is a known issue to do with line-endings which we hope to
- address in the very near future.
+ * Unit tests for Critical.
  */
+/* jshint -W098 */
 'use strict';
 var fs = require('fs');
 var assert = require('assert');
+var should = require('should');
+var vinylStream = require('vinyl-source-stream');
+var streamAssert = require('stream-assert');
+var gutil = require('gulp-util');
 var async = require('async');
 var critical = require('../src/critical');
 var path = require('path');
 var execFile = require('child_process').execFile;
 var pkg = require('../package.json');
 var mockery = require('mockery');
+var array = require('stream-array');
 
 process.setMaxListeners(0);
 process.chdir('test');
@@ -29,7 +31,6 @@ function stripWhitespace(string) {
 
 /* globals describe,it, beforeEach, afterEach */
 describe('Module', function () {
-
     it('throws on CSS generation if src and dest not specified', function () {
         assert.throws(function () {
             critical.generate({});
@@ -365,7 +366,6 @@ describe('Module', function () {
 
 // binary
 describe('CLI', function () {
-
     describe('acceptance', function () {
         it('should return the version', function (done) {
             var cp = execFile('node', [path.join(__dirname, '../', pkg.bin.critical), '--version', '--no-update-notifier']);
@@ -394,6 +394,7 @@ describe('CLI', function () {
             });
         });
     });
+
     describe('mocked', function () {
         beforeEach(function () {
             this.origArgv = process.argv;
@@ -439,13 +440,13 @@ describe('CLI', function () {
 
             require('../bin/critical');
 
-            assert.strictEqual(this.mockOpts.width,300);
-            assert.strictEqual(this.mockOpts.height,400);
-            assert.strictEqual(this.mockOpts.css,'css');
-            assert.strictEqual(this.mockOpts.htmlTarget,'htmlTarget');
-            assert.strictEqual(this.mockOpts.styleTarget,'styleTarget');
-            assert.strictEqual(this.mockOpts.minify,'minify');
-            assert.strictEqual(this.mockOpts.extract,'extract');
+            assert.strictEqual(this.mockOpts.width, 300);
+            assert.strictEqual(this.mockOpts.height, 400);
+            assert.strictEqual(this.mockOpts.css, 'css');
+            assert.strictEqual(this.mockOpts.htmlTarget, 'htmlTarget');
+            assert.strictEqual(this.mockOpts.styleTarget, 'styleTarget');
+            assert.strictEqual(this.mockOpts.minify, 'minify');
+            assert.strictEqual(this.mockOpts.extract, 'extract');
         });
 
         it('should pass the correct opts when using long opts', function () {
@@ -464,13 +465,13 @@ describe('CLI', function () {
 
             require('../bin/critical');
 
-            assert.strictEqual(this.mockOpts.width,300);
-            assert.strictEqual(this.mockOpts.height,400);
-            assert.strictEqual(this.mockOpts.css,'css');
-            assert.strictEqual(this.mockOpts.htmlTarget,'htmlTarget');
-            assert.strictEqual(this.mockOpts.styleTarget,'styleTarget');
-            assert.strictEqual(this.mockOpts.minify,'minify');
-            assert.strictEqual(this.mockOpts.extract,'extract');
+            assert.strictEqual(this.mockOpts.width, 300);
+            assert.strictEqual(this.mockOpts.height, 400);
+            assert.strictEqual(this.mockOpts.css, 'css');
+            assert.strictEqual(this.mockOpts.htmlTarget, 'htmlTarget');
+            assert.strictEqual(this.mockOpts.styleTarget, 'styleTarget');
+            assert.strictEqual(this.mockOpts.minify, 'minify');
+            assert.strictEqual(this.mockOpts.extract, 'extract');
         });
 
         it('should use "generateInline" when passing htmltarget', function () {
@@ -483,7 +484,7 @@ describe('CLI', function () {
 
             require('../bin/critical');
 
-            assert.strictEqual(this.method,'generateInline');
+            assert.strictEqual(this.method, 'generateInline');
         });
 
         it('should use "generate" when not passing htmltarget', function () {
@@ -495,7 +496,7 @@ describe('CLI', function () {
 
             require('../bin/critical');
 
-            assert.strictEqual(this.method,'generate');
+            assert.strictEqual(this.method, 'generate');
         });
 
         it('should rewrite "styleTarget" to "dest" when using "generate"', function () {
@@ -508,8 +509,190 @@ describe('CLI', function () {
 
             require('../bin/critical');
 
-            assert.strictEqual(this.method,'generate');
-            assert.strictEqual(this.mockOpts.dest,'styleTarget');
+            assert.strictEqual(this.method, 'generate');
+            assert.strictEqual(this.mockOpts.dest, 'styleTarget');
         });
+    });
+});
+
+/**
+ * Get vinyl file object
+ * @param file
+ * @returns {*|StreamArray|exports}
+ */
+function getVinyl(file) {
+    var args = Array.prototype.slice.call(arguments);
+
+    function create(filepath) {
+        return new gutil.File({
+            cwd: __dirname,
+            base: path.dirname(filepath),
+            path: filepath,
+            contents: new Buffer(fs.readFileSync(filepath))
+        });
+    }
+
+    return array(args.map(create));
+}
+
+
+// binary
+describe('Streams', function () {
+
+    it('should throw error if required param is missing', function () {
+        /* jshint -W068 */
+        (function () {
+            critical.stream();
+        }).should.throw('A valid base path is required.');
+    });
+
+    it('should emit error on streamed file', function(done){
+        var stream = critical.stream({base: path.join(__dirname,'fixture')});
+        var fakeFilePath = path.join(__dirname, './fixture/index.html');
+
+
+        fs.createReadStream(fakeFilePath)
+            .pipe(vinylStream())
+            .pipe(stream)
+            .on('data', function(data) {
+                assert.fail(null,data,'Should not emit data');
+            })
+            .on('error', function (err) {
+                err.message.should.eql('Streaming not supported');
+                done();
+            });
+    });
+
+    it('should support vinyl buffer streams', function(done){
+        var stream = critical.stream({base: path.join(__dirname,'fixture')});
+        var fakeFilePath = path.join(__dirname, './fixture/index.html');
+
+        getVinyl(fakeFilePath)
+            .pipe(stream)
+            .on('data', function(data) {
+                assert.ok(data);
+                done();
+            })
+            .on('error', function (err) {
+                assert.fail(null,err,'Should not emit an error');
+                done();
+            });
+    });
+
+    it('should use "generateInline" if inline option is not set', function (done) {
+        var stream = critical.stream({base: path.join(__dirname, 'fixture')});
+        var file1 = path.join(__dirname, './fixture/index.html');
+        var file2 = path.join(__dirname, './fixture/index-external.html');
+
+        var expected1 = fs.readFileSync('fixture/index-inlined-async-final.html', 'utf8');
+        var expected2 = fs.readFileSync('fixture/index-external-inlined-async-final.html', 'utf8');
+
+        getVinyl(file1, file2)
+            .pipe(stream)
+            .pipe(streamAssert.length(2))
+            .pipe(streamAssert.first(function (d) {
+                path.extname(d.path).should.eql('.html');
+                stripWhitespace(d.contents.toString('utf8')).should.eql(stripWhitespace(expected1));
+            }))
+            .pipe(streamAssert.second(function (d) {
+                path.extname(d.path).should.eql('.html');
+                stripWhitespace(d.contents.toString('utf8')).should.eql(stripWhitespace(expected2));
+            }))
+            .pipe(streamAssert.end(done));
+    });
+
+    it('should use "generateInline" if inline option is true', function (done) {
+        var stream = critical.stream({base: path.join(__dirname, 'fixture'), inline: true});
+        var file = path.join(__dirname, './fixture/index.html');
+
+        var expected = fs.readFileSync('fixture/index-inlined-async-final.html', 'utf8');
+
+        getVinyl(file)
+            .pipe(stream)
+            .pipe(streamAssert.length(1))
+            .pipe(streamAssert.first(function (d) {
+                path.extname(d.path).should.eql('.html');
+                stripWhitespace(d.contents.toString('utf8')).should.eql(stripWhitespace(expected));
+            }))
+            .pipe(streamAssert.end(done));
+    });
+
+    it('should use "generate" if inline option is false', function (done) {
+        var stream = critical.stream({
+            base: path.join(__dirname, 'fixture'),
+            inline: false,
+            width: 320,
+            height: 70,
+            inlineImages: true
+        });
+
+        var file1 = path.join(__dirname, './fixture/index-image.html');
+        var file2 = path.join(__dirname, './fixture/index-image-absolute.html');
+        var file3 = path.join(__dirname, './fixture/index-image-big.html');
+
+        var expected1 = fs.readFileSync('fixture/styles/critical-image-expected.css', 'utf8');
+        var expected2 = fs.readFileSync('fixture/styles/critical-image-absolute-expected.css', 'utf8');
+        var expected3 = fs.readFileSync('fixture/styles/critical-image-big-expected.css', 'utf8');
+
+        getVinyl(file1, file2, file3)
+            .pipe(stream)
+            .pipe(streamAssert.length(3))
+            .pipe(streamAssert.nth(0,function (d) {
+                path.extname(d.path).should.eql('.css');
+                stripWhitespace(d.contents.toString('utf8')).should.eql(stripWhitespace(expected1));
+            }))
+            .pipe(streamAssert.nth(1,function (d) {
+                path.extname(d.path).should.eql('.css');
+                stripWhitespace(d.contents.toString('utf8')).should.eql(stripWhitespace(expected2));
+            }))
+            .pipe(streamAssert.nth(2,function (d) {
+                path.extname(d.path).should.eql('.css');
+                stripWhitespace(d.contents.toString('utf8')).should.eql(stripWhitespace(expected3));
+            }))
+            .pipe(streamAssert.end(done));
+    });
+
+
+    it('should use ignore css files not specified when using css option', function (done) {
+        var stream = critical.stream({
+            base: path.join(__dirname, 'fixture'),
+            inline: false,
+            width: 1280,
+            height: 1024,
+            css: ['fixture/styles/main.css']
+        });
+
+        var file = path.join(__dirname, './fixture/index.html');
+        var expected = fs.readFileSync('fixture/styles/main.css', 'utf8');
+
+        getVinyl(file)
+            .pipe(stream)
+            .pipe(streamAssert.length(1))
+            .pipe(streamAssert.nth(0,function (d) {
+                path.extname(d.path).should.eql('.css');
+                stripWhitespace(d.contents.toString('utf8')).should.eql(stripWhitespace(expected));
+            }))
+            .pipe(streamAssert.end(done));
+    });
+
+    it('should use ignore css files not specified when using css option (inline)', function (done) {
+        var stream = critical.stream({
+            base: path.join(__dirname, 'fixture'),
+            width: 1280,
+            height: 1024,
+            css: ['fixture/styles/main.css']
+        });
+
+        var file = path.join(__dirname, './fixture/index.html');
+        var expected = fs.readFileSync('fixture/index-critical-stream.html', 'utf8');
+
+        getVinyl(file)
+            .pipe(stream)
+            .pipe(streamAssert.length(1))
+            .pipe(streamAssert.nth(0,function (d) {
+                path.extname(d.path).should.eql('.html');
+                stripWhitespace(d.contents.toString('utf8')).should.eql(stripWhitespace(expected));
+            }))
+            .pipe(streamAssert.end(done));
     });
 });

@@ -16,8 +16,10 @@ var inliner = require('./helper/inline-styles');
 var sourceInliner = require('inline-critical');
 var imageInliner = require('imageinliner');
 var Promise = require("bluebird");
+var through2 = require('through2');
+var PluginError = require('gulp-util').PluginError;
+var replaceExtension = require('gulp-util').replaceExtension;
 var os = require('os');
-
 
 // promisify fs and penthouse
 Promise.promisifyAll(fs);
@@ -25,6 +27,7 @@ var penthouseAsync = Promise.promisify(penthouse);
 var tmpfile = Promise.promisify(tmp.file);
 
 tmp.setGracefulCleanup();
+
 
 /**
  * get path from result array
@@ -49,27 +52,19 @@ function normalizePath(str) {
  * @returns {{promise: *, tmpfiles: Array}}
  */
 function getContentPromise(opts) {
+    // html passed in directly -> create tmp file and set opts.url
+    if (opts.html) {
+        return tmpfile({dir: opts.base, postfix: '.html'})
+            .then(resolveTmp)
+            .then(function(path){
+                opts.url = path;
+                return fs.writeFileAsync(opts.url, opts.html).then(function () {
+                    return opts.html;
+                });
+            });
 
-    // fetch html source if passed via options
-    return new Promise(function (resolve, reject) {
-        if (opts.html) {
-            resolve(opts.html);
-        } else {
-            reject();
-        }
-
-    }).then(function (html) {
-         return tmpfile({dir: opts.base, postfix: '.html'})
-             .then(resolveTmp)
-             .then(function(path){
-                 opts.url = path;
-                 return fs.writeFileAsync(opts.url, html).then(function () {
-                     return html;
-                 });
-             });
-
-    // otherwise try to fetch local file
-    }).catch(function () {
+    // use src file provided
+    } else {
         // src can either be absolute or relative to opts.base
         if (opts.src !== path.resolve(opts.src)) {
             opts.url = path.join(opts.base, opts.src);
@@ -78,9 +73,8 @@ function getContentPromise(opts) {
         }
 
         return fs.readFileAsync(opts.url);
-    });
+    }
 }
-
 
 /**
  * Critical path CSS generation
@@ -104,7 +98,6 @@ exports.generate = function (opts, cb) {
     if (!opts.width) {
         opts.width = 480;
     }
-
 
     // use content to fetch used css files
     getContentPromise(opts).then(function (html) {
@@ -283,3 +276,51 @@ exports.generateInline = function (opts, cb) {
         }).done();
     });
 };
+
+/**
+ * Streams wrapper for critical
+ *
+ * @param {object} opts
+ * @returns {*}
+ */
+exports.stream = function (opts) {
+    opts = opts || {};
+
+    // parse options
+    var command = opts.inline === false ? 'generate' : 'generateInline';
+
+    if (!opts.base) {
+        throw new PluginError('critical','A valid base path is required.');
+    }
+
+    // return stream
+    return through2.obj(function (file, enc, cb) {
+        if (file.isNull()) {
+            return cb(null, file);
+        }
+
+        if (file.isStream()) {
+            return this.emit('error', new PluginError('critical', 'Streaming not supported'));
+        }
+
+        var options = _.assign(opts,{
+            html: file.contents.toString()
+        });
+
+        exports[command](options, function(err,data){
+            if (err) {
+                throw new PluginError('critical', err.message);
+            }
+
+            // rename file if not inlined
+            if (opts.inline === false) {
+                file.path = replaceExtension(file.path,'.css');
+            }
+
+            file.contents = new Buffer(data, 'utf-8');
+            cb(err,file);
+        });
+    });
+};
+
+
