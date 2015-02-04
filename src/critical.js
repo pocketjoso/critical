@@ -20,6 +20,7 @@ var through2 = require('through2');
 var PluginError = require('gulp-util').PluginError;
 var replaceExtension = require('gulp-util').replaceExtension;
 var os = require('os');
+var tempfile = require('tempfile');
 
 // promisify fs and penthouse
 Promise.promisifyAll(fs);
@@ -148,13 +149,10 @@ exports.generate = function (opts, cb) {
 
     // write contents to tmp file
     }, '').then(function (css) {
-        return tmpfile({dir: opts.base, postfix: '.css'})
-            .then(resolveTmp)
-            .then(function(path){
-                return fs.writeFileAsync(path,css).then(function(){
-                   return path;
-                });
-            });
+        var csspath = tempfile('.css');
+        return fs.writeFileAsync(csspath,css).then(function(){
+            return csspath;
+        });
 
     // let penthouseAsync do the rest
     }).then(function (csspath) {
