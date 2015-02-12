@@ -307,7 +307,7 @@ exports.stream = function (opts) {
 
         exports[command](options, function(err,data){
             if (err) {
-                throw new PluginError('critical', err.message);
+                return new PluginError('critical', err.message);
             }
 
             // rename file if not inlined
@@ -315,7 +315,7 @@ exports.stream = function (opts) {
                 file.path = replaceExtension(file.path,'.css');
             }
 
-            file.contents = new Buffer(data, 'utf-8');
+            file.contents = new Buffer(data);
             cb(err,file);
         });
     });
